@@ -2,7 +2,8 @@
 from wechatrobot import WeChatRobot
 
 
-bot = WeChatRobot()
+url = "http://127.0.0.1:18888"  # comwechat http 接口地址
+bot = WeChatRobot(url)
 
 @bot.on("friend_msg")
 def on_friend_msg(msg):

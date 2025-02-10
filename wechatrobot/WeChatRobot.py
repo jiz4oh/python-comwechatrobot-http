@@ -4,6 +4,7 @@ import logging
 import socketserver
 import requests
 import json
+import socket
 
 from .Api import Api
 from .Bus import EventBus
@@ -15,12 +16,11 @@ Bus = EventBus()
 class WeChatRobot:
     BASE_PATH = "C:\\Users\\user\\My Documents\\WeChat Files"
 
-    def __init__(self , ip : str = "0.0.0.0" , port : int = 23456):
-        self.ip = ip
-        self.port = port
-        self.api = Api()
+    def __init__(self , url : str = "http://127.0.0.1:18888"):
+        self.socket_port = self._get_free_port()
+        self.api = Api(url)
 
-        self.url = "http://{}:{}/".format(ip , port)
+        self.url = url
 
     def on(self , *event_type : str) -> Callable:
         def deco(func: Callable) -> Callable:
@@ -31,7 +31,7 @@ class WeChatRobot:
 
     def run(self , main_thread : bool = True):
         #StartHook
-        self.StartMsgHook(port = self.port)
+        self.StartMsgHook(port = self.socket_port)
         self.StartImageHook(save_path = self.BASE_PATH)
         self.StartVoiceHook(save_path = self.BASE_PATH)
 
@@ -108,7 +108,7 @@ class WeChatRobot:
                         pass
                 conn.close()
 
-        ip_port = ( self.ip , self.port )
+        ip_port = ( '0.0.0.0' , self.socket_port )
         try:
             s = socketserver.ThreadingTCPServer(ip_port , ReceiveMsgSocketServer)
             if main_thread:
@@ -126,6 +126,14 @@ class WeChatRobot:
 
     def get_base_path(self):
         return self.BASE_PATH
+
+    @staticmethod
+    def _get_free_port():
+        sock = socket.socket()
+        sock.bind(('', 0))
+        ip, port = sock.getsockname()
+        sock.close()
+        return port
 
     def __getattr__(self , item : str):
         return self.api.exec_command(item)
