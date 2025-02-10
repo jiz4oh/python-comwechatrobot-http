@@ -1,12 +1,13 @@
 from typing import Callable, Any, Union, Awaitable , Optional , Dict
 import requests
 import json
+import os
 from .Modles import *
 import base64
 from wechatrobot import ChatRoomData_pb2 as ChatRoom
 
 class Api:
-    port : int = 18888
+    url : str = os.environ.get("COMWECHAT_HOOK_URL", "http://127.0.0.1:18888")
     db_handle : Dict[str, int] = 0
 
     def IsLoginIn(self , **params) -> Dict:
@@ -133,7 +134,7 @@ class Api:
         return self.post(WECHAT_MSG_FORWARD_MESSAGE , ForwardMessageBody(**params))
 
     def GetQrcodeImage(self , **params):
-        r = requests.post( f"http://127.0.0.1:{self.port}/api/?type={WECHAT_GET_QRCODE_IMAGE}", data = GetQrcodeImageBody(**params).json())
+        r = requests.post( f"{self.url}/api/?type={WECHAT_GET_QRCODE_IMAGE}", data = GetQrcodeImageBody(**params).json())
         return r.content
 
     def GetA8Key(self , **params) -> Dict:
@@ -228,7 +229,7 @@ class Api:
     #自定义]
 
     def post(self , type : int, params : Body) -> Dict:
-        return json.loads(requests.post( f"http://127.0.0.1:{self.port}/api/?type={type}", data = params.json()).content.decode("utf-8"),strict=False)
+        return json.loads(requests.post( f"{self.url}/api/?type={type}", data = params.json()).content.decode("utf-8"),strict=False)
 
     def exec_command(self , item: str) -> Callable:
         return eval(f"self.{item}")
