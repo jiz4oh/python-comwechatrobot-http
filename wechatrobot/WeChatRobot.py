@@ -82,6 +82,8 @@ class WeChatRobot:
                 elif (1 == msg["isSendMsg"]):
                     if 1 == msg["isSendByPhone"]:
                         Bus.emit("self_msg", msg)
+                    else:
+                        Bus.emit("sent_msg", msg)
                 elif "chatroom" in msg["sender"]:
                     Bus.emit("group_msg", msg)
                 else:
