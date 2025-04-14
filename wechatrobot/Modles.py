@@ -251,7 +251,7 @@ class SendXmlBody(Body):
     img_path : str
 
 #logout
-class LogoutBody(Body):
+class LogOutBody(Body):
     ...
 
 #get transfer
