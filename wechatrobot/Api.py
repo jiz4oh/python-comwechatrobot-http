@@ -6,7 +6,7 @@ import base64
 from wechatrobot import ChatRoomData_pb2 as ChatRoom
 
 class Api:
-    port : int = 18888
+    port : int = os.environ.get('WECHAT_HOOK_PORT', 18888)
     db_handle : Dict[str, int] = 0
 
     def IsLoginIn(self , **params) -> Dict:
@@ -183,6 +183,7 @@ class Api:
             contact_data[wxid]['nickname'] = OpenIMContactList[index][3]
             contact_data[wxid]['type'] = OpenIMContactList[index][4]
         return contact_data
+
 
     def GetAllGroupMembersBySql(self) -> Dict:
         group_data = {} #{"group_id" : { "wxID" : "displayName"}}
