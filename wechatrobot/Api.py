@@ -6,8 +6,9 @@ import base64
 from wechatrobot import ChatRoomData_pb2 as ChatRoom
 
 class Api:
-    port : int = os.environ.get('WECHAT_HOOK_PORT', 18888)
-    db_handle : Dict[str, int] = 0
+    def __init__(self, port = 18888):
+        self.port = port
+        self.db_handle : Dict[str, int] = 0
 
     def IsLoginIn(self , **params) -> Dict:
         return self.post(WECHAT_IS_LOGIN , IsLoginBody(**params))
