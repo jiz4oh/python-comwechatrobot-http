@@ -185,6 +185,17 @@ class Api:
             contact_data[wxid]['type'] = OpenIMContactList[index][4]
         return contact_data
 
+    def GetGroupMembersBySql(self, room_id) -> Dict:
+        group_data = {} #{ "wxID" : "displayName"}
+        sql = "select RoomData from ChatRoom where ChatRoomName = '" + room_id + "' ;"
+        data = self.QueryDatabase(db_handle=self.GetDBHandle(), sql = sql)['data']
+        chatroom = ChatRoom.ChatRoomData()
+        group_member = {}
+        chatroom.ParseFromString(bytes(base64.b64decode(data[1][0])))
+        for k in chatroom.members:
+            if k.displayName != "":
+                group_member[k.wxID] = k.displayName
+        return group_member
 
     def GetAllGroupMembersBySql(self) -> Dict:
         group_data = {} #{"group_id" : { "wxID" : "displayName"}}
