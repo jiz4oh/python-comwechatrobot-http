@@ -15,10 +15,10 @@ Bus = EventBus()
 class WeChatRobot:
     BASE_PATH = "C:\\Users\\user\\My Documents\\WeChat Files"
 
-    def __init__(self , ip : str = "0.0.0.0" , port : int = 23456):
+    def __init__(self , ip : str = "0.0.0.0" , port : int = 23456, comwechat_port : int = 18888):
         self.ip = ip
         self.port = port
-        self.api = Api()
+        self.api = Api(comwechat_port)
 
         self.url = "http://{}:{}/".format(ip , port)
 
