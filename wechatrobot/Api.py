@@ -1,6 +1,8 @@
 from typing import Callable, Any, Union, Awaitable , Optional , Dict
 import requests
 import json
+import os
+import threading
 from .Modles import *
 import base64
 from wechatrobot import ChatRoomData_pb2 as ChatRoom
@@ -8,6 +10,32 @@ from wechatrobot import ChatRoomData_pb2 as ChatRoom
 class Api:
     port : int = 18888
     db_handle : Dict[str, int] = 0
+    request_timeout = (3, 15)
+
+    def __init__(self, port: int = 18888):
+        self.port = self._get_port(port)
+        self.api_base = self._get_api_base(self.port)
+        self.db_handle = {}
+        self._db_handle_lock = threading.Lock()
+
+    def _get_port(self, default_port: int) -> int:
+        value = os.environ.get("WECHATROBOT_API_PORT")
+        if value is None:
+            return default_port
+        try:
+            return int(value)
+        except ValueError:
+            return default_port
+
+    def _get_api_base(self, port: int) -> str:
+        base = os.environ.get("WECHATROBOT_API_BASE")
+        if base:
+            return base.rstrip("/")
+        host = os.environ.get("WECHATROBOT_API_HOST", "127.0.0.1").strip() or "127.0.0.1"
+        return f"http://{host}:{port}"
+
+    def _api_url(self, api_type: int) -> str:
+        return f"{self.api_base}/api/?type={api_type}"
 
     def IsLoginIn(self , **params) -> Dict:
         return self.post(WECHAT_IS_LOGIN , IsLoginBody(**params))
@@ -112,7 +140,10 @@ class Api:
         return self.post(WECHAT_DATABASE_BACKUP , BackupDatabaseBody(**params))
 
     def QueryDatabase(self , **params) -> Dict:
-        return self.post(WECHAT_DATABASE_QUERY , QueryDatabaseBody(**params))
+        response = self.post(WECHAT_DATABASE_QUERY , QueryDatabaseBody(**params))
+        if response.get("err_msg") == "database handle unavailable":
+            self.invalidate_db_handles()
+        return response
 
     def SetVersion(self , **params) -> Dict:
         return self.post(WECHAT_SET_VERSION , SetVersionBody(**params))
@@ -133,7 +164,11 @@ class Api:
         return self.post(WECHAT_MSG_FORWARD_MESSAGE , ForwardMessageBody(**params))
 
     def GetQrcodeImage(self , **params):
-        r = requests.post( f"http://127.0.0.1:{self.port}/api/?type={WECHAT_GET_QRCODE_IMAGE}", data = GetQrcodeImageBody(**params).json())
+        r = requests.post(
+            self._api_url(WECHAT_GET_QRCODE_IMAGE),
+            data=GetQrcodeImageBody(**params).json(),
+            timeout=self.request_timeout,
+        )
         return r.content
 
     def GetA8Key(self , **params) -> Dict:
@@ -155,11 +190,21 @@ class Api:
         return self.post(WECHAT_GET_CDN , GetCdnBody(**params))
 
     #[自定义
-    def GetDBHandle(self, db_name="MicroMsg.db") -> int:
-        if not self.db_handle:
-            self.db_handle = {i["db_name"]: i["handle"] for i in self.GetDatabaseHandles()["data"]}
+    def invalidate_db_handles(self) -> None:
+        with self._db_handle_lock:
+            self.db_handle.clear()
 
-        return self.db_handle[db_name]
+    def GetDBHandle(self, db_name="MicroMsg.db") -> int:
+        with self._db_handle_lock:
+            if db_name not in self.db_handle:
+                handles = self.GetDatabaseHandles().get("data", [])
+                self.db_handle = {
+                    item["db_name"]: item["handle"]
+                    for item in handles
+                    if item.get("db_name") and item.get("handle")
+                }
+
+            return self.db_handle.get(db_name, 0)
 
     def GetContactListBySql(self) -> Dict:
         sql = "select UserName,Alias,Remark,NickName,Type from Contact"   #  where type!=4 and type!=0;
@@ -228,7 +273,12 @@ class Api:
     #自定义]
 
     def post(self , type : int, params : Body) -> Dict:
-        return json.loads(requests.post( f"http://127.0.0.1:{self.port}/api/?type={type}", data = params.json()).content.decode("utf-8"),strict=False)
+        response = requests.post(
+            self._api_url(type),
+            data=params.json(),
+            timeout=self.request_timeout,
+        )
+        return json.loads(response.content.decode("utf-8"), strict=False)
 
     def exec_command(self , item: str) -> Callable:
         return eval(f"self.{item}")

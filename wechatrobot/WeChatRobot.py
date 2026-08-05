@@ -106,6 +106,7 @@ class WeChatRobot:
             r.raise_for_status()
             payload = r.json()
         except Exception as e:
+            self.api.invalidate_db_handles()
             logging.warning("Bridge pull failed: %s", e)
             return False
 
@@ -113,6 +114,7 @@ class WeChatRobot:
             try:
                 self._receive_callback(msg)
             except Exception as e:
+                self.api.invalidate_db_handles()
                 logging.exception("Bridge message dispatch failed: %s", e)
 
         return True
