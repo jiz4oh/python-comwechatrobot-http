@@ -10,7 +10,10 @@ from wechatrobot import ChatRoomData_pb2 as ChatRoom
 class Api:
     port : int = 18888
     db_handle : Dict[str, int] = 0
-    request_timeout = (3, 15)
+    # Native API handlers may synchronously wait for WeChat's internal send or
+    # database operation. Let the caller wait for the native response instead
+    # of converting a slow operation into a false send failure.
+    request_timeout = None
 
     def __init__(self, port: int = 18888):
         self.port = self._get_port(port)
