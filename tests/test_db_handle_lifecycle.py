@@ -9,6 +9,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from wechatrobot.Api import Api
+from wechatrobot.Modles import WECHAT_DATABASE_INVALIDATE_HANDLES
 from wechatrobot.WeChatRobot import WeChatRobot
 
 
@@ -55,6 +56,16 @@ class DbHandleLifecycleTest(unittest.TestCase):
         api.GetDatabaseHandles = lambda: {"data": []}
 
         self.assertEqual(api.GetDBHandle("MicroMsg.db"), 0)
+
+    def test_invalidate_db_handles_notifies_native(self):
+        api = Api()
+        api.db_handle = {"MicroMsg.db": 1}
+        with patch.object(api, "post", return_value={"result": "OK"}) as post:
+            api.invalidate_db_handles()
+
+        self.assertEqual(api.db_handle, {})
+        called_types = [call.args[0] for call in post.call_args_list]
+        self.assertIn(WECHAT_DATABASE_INVALIDATE_HANDLES, called_types)
 
 
 if __name__ == "__main__":

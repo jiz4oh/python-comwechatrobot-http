@@ -159,6 +159,9 @@ class Api:
             self.invalidate_db_handles()
         return response
 
+    def InvalidateDatabaseHandles(self , **params) -> Dict:
+        return self.post(WECHAT_DATABASE_INVALIDATE_HANDLES , InvalidateDatabaseHandlesBody(**params))
+
     def SetVersion(self , **params) -> Dict:
         return self.post(WECHAT_SET_VERSION , SetVersionBody(**params))
 
@@ -207,6 +210,10 @@ class Api:
     def invalidate_db_handles(self) -> None:
         with self._db_handle_lock:
             self.db_handle.clear()
+        try:
+            self.InvalidateDatabaseHandles()
+        except Exception:
+            pass
 
     def GetDBHandle(self, db_name="MicroMsg.db") -> int:
         with self._db_handle_lock:
