@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 from collections import deque
 import threading
 import logging
@@ -50,6 +50,7 @@ class WeChatRobot:
         self.retry_max_attempts = max(0, _env_int("WECHATROBOT_DISPATCH_RETRY_TIMES", 3))
         self.retry_base_seconds = max(0.1, _env_float("WECHATROBOT_DISPATCH_RETRY_BASE_SECONDS", 2.0))
         self._retry_queue = deque()
+        self._login_state: Optional[bool] = None
 
     def on(self, *event_type: str) -> Callable:
         def deco(func: Callable) -> Callable:
@@ -130,6 +131,20 @@ class WeChatRobot:
 
         return True
 
+    def _native_logged_in(self) -> bool:
+        try:
+            data = self.api.GetSelfInfo().get("data")
+            ready = isinstance(data, dict) and isinstance(data.get("wxId"), str)
+        except Exception:
+            ready = False
+        if ready != self._login_state:
+            self._login_state = ready
+            if ready:
+                logging.info("Native WeChat login state changed: ready=True")
+            else:
+                logging.warning("Native WeChat login state changed: ready=False")
+        return ready
+
     def _dispatch_with_retry(self, msg: Dict[str, Any], attempts: int = 0) -> None:
         try:
             self._receive_callback(msg)
@@ -137,6 +152,15 @@ class WeChatRobot:
         except Exception as e:
             self.api.invalidate_db_handles()
             next_attempts = attempts + 1
+            if not self._native_logged_in():
+                delay = min(60.0, self.retry_base_seconds * (2 ** min(next_attempts, 5)))
+                due_at = time.monotonic() + delay
+                self._retry_queue.append((msg, next_attempts, due_at))
+                logging.warning(
+                    "Bridge message dispatch deferred until login, msgid=%s retry_in=%.1fs: %s",
+                    msg.get("msgid"), delay, e,
+                )
+                return
             if self.retry_max_attempts <= 0 or next_attempts > self.retry_max_attempts:
                 logging.error(
                     "Bridge message dispatch failed permanently, dropping msgid=%s attempts=%s: %s",
@@ -161,6 +185,9 @@ class WeChatRobot:
 
     def _consume_forever(self) -> None:
         while True:
+            if not self._native_logged_in():
+                time.sleep(max(1.0, self.pull_wait_ms / 1000))
+                continue
             self._process_retry_queue()
             ok = self._pull_once()
             if not ok:

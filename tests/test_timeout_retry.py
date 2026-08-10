@@ -82,7 +82,9 @@ class DispatchRetryTest(unittest.TestCase):
 
         robot._receive_callback = callback
         payload = {"messages": [message("bad1"), message("ok"), message("bad2")]}
-        with patch("wechatrobot.WeChatRobot.requests.post", return_value=FakeResponse(payload)):
+        with patch.object(robot, "_native_logged_in", return_value=True), patch(
+            "wechatrobot.WeChatRobot.requests.post", return_value=FakeResponse(payload)
+        ):
             self.assertTrue(robot._pull_once())
 
         self.assertEqual(dispatched, ["ok"])
@@ -93,7 +95,8 @@ class DispatchRetryTest(unittest.TestCase):
                 (msg, attempts, time.monotonic() - 1)
                 for msg, attempts, _ in robot._retry_queue
             )
-            robot._process_retry_queue()
+            with patch.object(robot, "_native_logged_in", return_value=True):
+                robot._process_retry_queue()
 
         self.assertEqual(robot._retry_queue, deque())
         self.assertEqual(dispatched, ["ok"])
@@ -110,7 +113,9 @@ class DispatchRetryTest(unittest.TestCase):
             dispatched.append(msg["msgid"])
 
         robot._receive_callback = callback
-        with patch("wechatrobot.WeChatRobot.requests.post", return_value=FakeResponse({"messages": [message("bad")]})):
+        with patch.object(robot, "_native_logged_in", return_value=True), patch(
+            "wechatrobot.WeChatRobot.requests.post", return_value=FakeResponse({"messages": [message("bad")]})
+        ):
             robot._pull_once()
 
         self.assertEqual(dispatched, [])
@@ -118,10 +123,65 @@ class DispatchRetryTest(unittest.TestCase):
         msg, retry_attempts, _ = robot._retry_queue[0]
         self.assertEqual(retry_attempts, 1)
         robot._retry_queue = deque([(msg, retry_attempts, time.monotonic() - 1)])
-        robot._process_retry_queue()
+        with patch.object(robot, "_native_logged_in", return_value=True):
+            robot._process_retry_queue()
 
         self.assertEqual(dispatched, ["bad"])
         self.assertEqual(robot._retry_queue, deque())
+
+
+class LoginGateTest(unittest.TestCase):
+    def test_native_logged_in_accepts_self_info(self):
+        robot = WeChatRobot()
+        with patch.object(robot.api, "GetSelfInfo", return_value={"data": {"wxId": "wxid_a"}}):
+            self.assertTrue(robot._native_logged_in())
+
+    def test_native_logged_in_rejects_login_required(self):
+        robot = WeChatRobot()
+        with patch.object(robot.api, "GetSelfInfo", return_value={"data": "请先登录微信."}):
+            self.assertFalse(robot._native_logged_in())
+
+    def test_consume_holds_bridge_messages_when_not_logged_in(self):
+        robot = WeChatRobot()
+        bridge_calls = []
+
+        def fake_post(*args, **kwargs):
+            bridge_calls.append((args, kwargs))
+            return FakeResponse({"messages": []})
+
+        with patch.object(robot, "_native_logged_in", return_value=False), patch(
+            "wechatrobot.WeChatRobot.requests.post", side_effect=fake_post
+        ), patch(
+            "wechatrobot.WeChatRobot.time.sleep", side_effect=[None, KeyboardInterrupt]
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                robot._consume_forever()
+
+        self.assertEqual(bridge_calls, [])
+
+    def test_login_required_dispatch_is_deferred_not_dropped(self):
+        robot = WeChatRobot()
+
+        def callback(msg):
+            raise RuntimeError("dispatch boom while not logged in")
+
+        robot._receive_callback = callback
+        payload = {"messages": [message("stuck")]}
+        with patch.object(robot, "_native_logged_in", return_value=False), patch(
+            "wechatrobot.WeChatRobot.requests.post", return_value=FakeResponse(payload)
+        ):
+            robot._pull_once()
+
+        self.assertEqual(len(robot._retry_queue), 1)
+        for _ in range(10):
+            robot._retry_queue = deque(
+                (msg, attempts, time.monotonic() - 1)
+                for msg, attempts, _ in robot._retry_queue
+            )
+            with patch.object(robot, "_native_logged_in", return_value=False):
+                robot._process_retry_queue()
+
+        self.assertEqual(len(robot._retry_queue), 1)
 
 
 if __name__ == "__main__":
