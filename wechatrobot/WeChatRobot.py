@@ -1,4 +1,5 @@
 from typing import Callable, Dict, Any
+from collections import deque
 import threading
 import logging
 import requests
@@ -24,6 +25,17 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logging.warning("Invalid float env %s=%s, fallback=%s", name, value, default)
+        return default
+
+
 class WeChatRobot:
     BASE_PATH = "C:\\Users\\user\\My Documents\\WeChat Files"
 
@@ -35,6 +47,9 @@ class WeChatRobot:
         self.bridge_api_base = os.environ.get("WECHATROBOT_BRIDGE_API_BASE", "http://127.0.0.1:19088").rstrip("/")
         self.pull_wait_ms = _env_int("WECHATROBOT_PULL_WAIT_MS", 15000)
         self.pull_batch_size = _env_int("WECHATROBOT_PULL_BATCH_SIZE", 50)
+        self.retry_max_attempts = max(0, _env_int("WECHATROBOT_DISPATCH_RETRY_TIMES", 3))
+        self.retry_base_seconds = max(0.1, _env_float("WECHATROBOT_DISPATCH_RETRY_BASE_SECONDS", 2.0))
+        self._retry_queue = deque()
 
     def on(self, *event_type: str) -> Callable:
         def deco(func: Callable) -> Callable:
@@ -111,16 +126,42 @@ class WeChatRobot:
             return False
 
         for msg in payload.get("messages", []):
-            try:
-                self._receive_callback(msg)
-            except Exception as e:
-                self.api.invalidate_db_handles()
-                logging.exception("Bridge message dispatch failed: %s", e)
+            self._dispatch_with_retry(msg)
 
         return True
 
+    def _dispatch_with_retry(self, msg: Dict[str, Any], attempts: int = 0) -> None:
+        try:
+            self._receive_callback(msg)
+            return
+        except Exception as e:
+            self.api.invalidate_db_handles()
+            next_attempts = attempts + 1
+            if self.retry_max_attempts <= 0 or next_attempts > self.retry_max_attempts:
+                logging.error(
+                    "Bridge message dispatch failed permanently, dropping msgid=%s attempts=%s: %s",
+                    msg.get("msgid"), next_attempts, e,
+                )
+                return
+            delay = self.retry_base_seconds * (2 ** (next_attempts - 1))
+            due_at = time.monotonic() + delay
+            self._retry_queue.append((msg, next_attempts, due_at))
+            logging.warning(
+                "Bridge message dispatch failed, retry %s/%s in %.1fs msgid=%s: %s",
+                next_attempts, self.retry_max_attempts, delay, msg.get("msgid"), e,
+            )
+
+    def _process_retry_queue(self) -> None:
+        while self._retry_queue:
+            msg, attempts, due_at = self._retry_queue[0]
+            if time.monotonic() < due_at:
+                return
+            self._retry_queue.popleft()
+            self._dispatch_with_retry(msg, attempts)
+
     def _consume_forever(self) -> None:
         while True:
+            self._process_retry_queue()
             ok = self._pull_once()
             if not ok:
                 time.sleep(1)

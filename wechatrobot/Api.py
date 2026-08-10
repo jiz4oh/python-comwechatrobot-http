@@ -10,9 +10,8 @@ from wechatrobot import ChatRoomData_pb2 as ChatRoom
 class Api:
     port : int = 18888
     db_handle : Dict[str, int] = 0
-    # Native API handlers may synchronously wait for WeChat's internal send or
-    # database operation. Let the caller wait for the native response instead
-    # of converting a slow operation into a false send failure.
+    # A dead native worker must not block EFB forever: control calls default to
+    # 5s and send calls default to 60s, both configurable via env.
     request_timeout = None
 
     def __init__(self, port: int = 18888):
@@ -20,6 +19,18 @@ class Api:
         self.api_base = self._get_api_base(self.port)
         self.db_handle = {}
         self._db_handle_lock = threading.Lock()
+        self.request_timeout = self._env_float("WECHATROBOT_API_TIMEOUT", 5.0)
+        self.send_timeout = self._env_float("WECHATROBOT_SEND_API_TIMEOUT", 60.0)
+
+    @staticmethod
+    def _env_float(name: str, default: float) -> float:
+        value = os.environ.get(name)
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            return default
 
     def _get_port(self, default_port: int) -> int:
         value = os.environ.get("WECHATROBOT_API_PORT")
@@ -47,25 +58,25 @@ class Api:
         return self.post(WECHAT_GET_SELF_INFO , GetSelfInfoBody(**params))
 
     def SendText(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_TEXT , SendTextBody(**params))
+        return self.post(WECHAT_MSG_SEND_TEXT , SendTextBody(**params), timeout=self.send_timeout)
 
     def SendAt(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_AT , SendAtBody(**params))
+        return self.post(WECHAT_MSG_SEND_AT , SendAtBody(**params), timeout=self.send_timeout)
 
     def SendCard(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_CARD , SendCardBody(**params))
+        return self.post(WECHAT_MSG_SEND_CARD , SendCardBody(**params), timeout=self.send_timeout)
 
     def SendImage(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_IMAGE , SendImageBody(**params))
+        return self.post(WECHAT_MSG_SEND_IMAGE , SendImageBody(**params), timeout=self.send_timeout)
 
     def SendFile(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_FILE , SendFileBody(**params))
+        return self.post(WECHAT_MSG_SEND_FILE , SendFileBody(**params), timeout=self.send_timeout)
     
     def SendArticle(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_ARTICLE , SendArticleBody(**params))
+        return self.post(WECHAT_MSG_SEND_ARTICLE , SendArticleBody(**params), timeout=self.send_timeout)
 
     def SendApp(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_APP , SendAppBody(**params))
+        return self.post(WECHAT_MSG_SEND_APP , SendAppBody(**params), timeout=self.send_timeout)
 
     def StartMsgHook(self, **params) -> Dict:
         return self.post(WECHAT_MSG_START_HOOK , StartMsgHookBody(**params))
@@ -164,7 +175,7 @@ class Api:
         return self.post(WECHAT_GET_PUBLIC_MSG , GetPublicMsgBody(**params))
 
     def ForwardMessage(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_FORWARD_MESSAGE , ForwardMessageBody(**params))
+        return self.post(WECHAT_MSG_FORWARD_MESSAGE , ForwardMessageBody(**params), timeout=self.send_timeout)
 
     def GetQrcodeImage(self , **params):
         r = requests.post(
@@ -178,7 +189,7 @@ class Api:
         return self.post(WECHAT_GET_A8KEY , GetA8KeyBody(**params))
 
     def SendXml(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_XML , SendXmlBody(**params))
+        return self.post(WECHAT_MSG_SEND_XML , SendXmlBody(**params), timeout=self.send_timeout)
 
     def LogOut(self , **params) -> Dict:
         return self.post(WECHAT_LOGOUT , LogOutBody(**params))
@@ -187,7 +198,7 @@ class Api:
         return self.post(WECHAT_GET_TRANSFER , GetTransferBody(**params))
 
     def SendEmotion(self , **params) -> Dict:
-        return self.post(WECHAT_MSG_SEND_EMOTION , SendEmotionBody(**params))
+        return self.post(WECHAT_MSG_SEND_EMOTION , SendEmotionBody(**params), timeout=self.send_timeout)
 
     def GetCdn(self , **params) -> Dict:
         return self.post(WECHAT_GET_CDN , GetCdnBody(**params))
@@ -275,11 +286,11 @@ class Api:
             return None
     #自定义]
 
-    def post(self , type : int, params : Body) -> Dict:
+    def post(self , type : int, params : Body, timeout: Optional[float] = None) -> Dict:
         response = requests.post(
             self._api_url(type),
             data=params.json(),
-            timeout=self.request_timeout,
+            timeout=self.request_timeout if timeout is None else timeout,
         )
         return json.loads(response.content.decode("utf-8"), strict=False)
 
