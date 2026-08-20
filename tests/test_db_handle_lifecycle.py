@@ -1,7 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 
@@ -50,6 +50,66 @@ class DbHandleLifecycleTest(unittest.TestCase):
 
         self.assertEqual(response["result"], "ERROR")
         self.assertEqual(api.db_handle, {})
+
+    def test_rejected_named_handle_refreshes_and_retries_once(self):
+        api = Api()
+        api.db_handle = {"MicroMsg.db": 1}
+        responses = iter(
+            [
+                {
+                    "result": "ERROR",
+                    "err_msg": "database handle unavailable",
+                    "data": [],
+                },
+                {
+                    "result": "OK",
+                    "data": [{"db_name": "MicroMsg.db", "handle": 2}],
+                },
+                {"result": "OK", "data": [["count(*)"], ["5560"]]},
+            ]
+        )
+        with patch.object(api, "post", side_effect=lambda *args, **kwargs: next(responses)) as post, patch.object(
+            api, "InvalidateDatabaseHandles"
+        ):
+            response = api.QueryDatabase(
+                db_name="MicroMsg.db", db_handle=1, sql="select count(*) from Contact"
+            )
+
+        self.assertEqual(response["data"][1][0], "5560")
+        query_calls = [call for call in post.call_args_list if call.args[0] == 34]
+        self.assertEqual(len(query_calls), 2)
+        self.assertEqual(query_calls[-1].args[1].db_handle, "2")
+
+    def test_normal_empty_result_does_not_retry(self):
+        api = Api()
+        with patch.object(api, "post", return_value={"result": "OK", "data": []}) as post:
+            response = api.QueryDatabase(
+                db_name="MicroMsg.db", db_handle=1, sql="select * from Contact where 0"
+            )
+
+        self.assertEqual(response, {"result": "OK", "data": []})
+        self.assertEqual(post.call_count, 1)
+
+    def test_named_handle_error_remains_explicit_when_refresh_is_unavailable(self):
+        api = Api()
+        responses = iter(
+            [
+                {
+                    "result": "ERROR",
+                    "err_msg": "database handle unavailable",
+                    "data": [],
+                },
+                {"result": "ERROR", "err_msg": "database handles unavailable", "data": []},
+            ]
+        )
+        with patch.object(api, "post", side_effect=lambda *args, **kwargs: next(responses)) as post, patch.object(
+            api, "InvalidateDatabaseHandles"
+        ):
+            response = api.QueryDatabase(db_name="MicroMsg.db", db_handle=1, sql="select 1")
+
+        self.assertEqual(response["result"], "ERROR")
+        self.assertEqual(response["err_msg"], "database handle unavailable")
+        self.assertEqual(post.call_count, 2)
 
     def test_unavailable_database_handle_returns_zero(self):
         api = Api()

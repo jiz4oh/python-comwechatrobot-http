@@ -8,6 +8,7 @@ import base64
 from wechatrobot import ChatRoomData_pb2 as ChatRoom
 
 class Api:
+    DB_HANDLE_ERRORS = {"database handle unavailable", "database query failed"}
     port : int = 18888
     db_handle : Dict[str, int] = 0
     # A dead native worker must not block EFB forever: control calls default to
@@ -154,10 +155,35 @@ class Api:
         return self.post(WECHAT_DATABASE_BACKUP , BackupDatabaseBody(**params))
 
     def QueryDatabase(self , **params) -> Dict:
+        db_name = params.pop("db_name", None)
+        db_handle = params.get("db_handle")
+        if db_name is None:
+            db_name = next(
+                (name for name, handle in self.db_handle.items() if str(handle) == str(db_handle)),
+                None,
+            )
+
+        if db_name and not params.get("db_handle"):
+            params["db_handle"] = self.GetDBHandle(db_name)
+            db_handle = params["db_handle"]
+
         response = self.post(WECHAT_DATABASE_QUERY , QueryDatabaseBody(**params))
-        if response.get("err_msg") == "database handle unavailable":
+        if response.get("err_msg") not in self.DB_HANDLE_ERRORS:
+            return response
+
+        self.invalidate_db_handles()
+        if not db_name:
+            return response
+
+        fresh_handle = self.GetDBHandle(db_name)
+        if not fresh_handle:
+            return response
+
+        params["db_handle"] = fresh_handle
+        retry = self.post(WECHAT_DATABASE_QUERY , QueryDatabaseBody(**params))
+        if retry.get("err_msg") in self.DB_HANDLE_ERRORS:
             self.invalidate_db_handles()
-        return response
+        return retry
 
     def InvalidateDatabaseHandles(self , **params) -> Dict:
         return self.post(WECHAT_DATABASE_INVALIDATE_HANDLES , InvalidateDatabaseHandlesBody(**params))
@@ -229,7 +255,9 @@ class Api:
 
     def GetContactListBySql(self) -> Dict:
         sql = "select UserName,Alias,Remark,NickName,Type from Contact"   #  where type!=4 and type!=0;
-        ContactList = self.QueryDatabase(db_handle=self.GetDBHandle(), sql=sql)["data"]
+        ContactList = self.QueryDatabase(
+            db_name="MicroMsg.db", sql=sql
+        )["data"]
         contact_data = {}         # {wxid : {alias, remark, nickname , type}}
         for index in range(1, len(ContactList)):
             wxid = ContactList[index][0]
@@ -240,11 +268,14 @@ class Api:
             contact_data[wxid]['type'] = ContactList[index][4]
 
         sql = "select UserName,'' as Alias,Remark,NickName,Type from OpenIMContact"   #  where type!=4 and type!=0;
-        OpenIMContactList = self.QueryDatabase(db_handle=self.GetDBHandle("OpenIMContact.db"), sql=sql)["data"]
+        OpenIMContactList = self.QueryDatabase(
+            db_name="OpenIMContact.db",
+            sql=sql,
+        )["data"]
         for index in range(1, len(OpenIMContactList)):
             wxid = OpenIMContactList[index][0]
             contact_data[wxid] = {}
-            contact_data[wxid]['alias'] = ContactList[index][1]
+            contact_data[wxid]['alias'] = OpenIMContactList[index][1]
             contact_data[wxid]['remark'] = OpenIMContactList[index][2]
             contact_data[wxid]['nickname'] = OpenIMContactList[index][3]
             contact_data[wxid]['type'] = OpenIMContactList[index][4]
@@ -253,7 +284,9 @@ class Api:
     def GetAllGroupMembersBySql(self) -> Dict:
         group_data = {} #{"group_id" : { "wxID" : "displayName"}}
         sql = "select ChatRoomName,RoomData from ChatRoom"
-        GroupMemberList = self.QueryDatabase(db_handle=self.GetDBHandle(), sql = sql)['data']
+        GroupMemberList = self.QueryDatabase(
+            db_name="MicroMsg.db", sql=sql
+        )["data"]
         chatroom = ChatRoom.ChatRoomData()
         for index in range(1 , len(GroupMemberList)):
             group_member = {}
@@ -267,10 +300,15 @@ class Api:
     def GetPictureBySql(self, wxid) -> Dict:
         if not wxid.endswith("@openim"):
             sql = f"select usrName,smallHeadImgUrl,bigHeadImgUrl from ContactHeadImgUrl where usrName='{wxid}';" 
-            result = self.QueryDatabase(db_handle=self.GetDBHandle(),sql=sql)
+            result = self.QueryDatabase(
+                db_name="MicroMsg.db", sql=sql
+            )
         else:
             sql = f"select UserName,SmallHeadImgUrl,BigHeadImgUrl from OpenIMContact where UserName='{wxid}';" 
-            result = self.QueryDatabase(db_handle=self.GetDBHandle("OpenIMContact.db"),sql=sql)
+            result = self.QueryDatabase(
+                db_name="OpenIMContact.db",
+                sql=sql,
+            )
         try:
             if result["data"][1][2] != "":
                 return result["data"][1][2]
@@ -283,11 +321,16 @@ class Api:
     def GetContactBySql(self, wxid):
         if not wxid.endswith("@openim"):
             sql = f"select UserName,Alias,Remark,NickName,Type from Contact where UserName='{wxid}';" 
-            result = self.QueryDatabase(db_handle=self.GetDBHandle(),sql=sql)
+            result = self.QueryDatabase(
+                db_name="MicroMsg.db", sql=sql
+            )
         else:
             sql = f"select UserName,'' as Alias,Remark,NickName,Type from OpenIMContact where UserName='{wxid}';" 
-            result = self.QueryDatabase(db_handle=self.GetDBHandle("OpenIMContact.db"),sql=sql)
-        if len(result["data"]) > 0:
+            result = self.QueryDatabase(
+                db_name="OpenIMContact.db",
+                sql=sql,
+            )
+        if len(result["data"]) > 1:
             return result["data"][1]
         else:
             return None
