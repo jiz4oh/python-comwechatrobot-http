@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -60,6 +61,18 @@ class ApiTimeoutTest(unittest.TestCase):
             api = Api()
         self.assertEqual(api.request_timeout, 7.5)
         self.assertEqual(api.send_timeout, 42.0)
+
+    def test_mark_as_read_posts_chat_wxid_to_type_49(self):
+        api = Api()
+        with patch(
+            "wechatrobot.Api.requests.post",
+            return_value=FakeResponse(b'{"result":"OK","msg":1}'),
+        ) as mocked:
+            response = api.MarkAsRead(wxid="wxid_a")
+
+        self.assertEqual(response, {"result": "OK", "msg": 1})
+        self.assertTrue(mocked.call_args.args[0].endswith("/api/?type=49"))
+        self.assertEqual(json.loads(mocked.call_args.kwargs["data"]), {"wxid": "wxid_a"})
 
 
 class DispatchRetryTest(unittest.TestCase):
