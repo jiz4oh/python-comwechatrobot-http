@@ -235,6 +235,9 @@ class Api:
     def MarkAsRead(self , **params) -> Dict:
         return self.post(WECHAT_MSG_MARK_AS_READ , MarkAsReadBody(**params))
 
+    def RevokeMessage(self , **params) -> Dict:
+        return self.post(WECHAT_MSG_REVOKE_MESSAGE , RevokeMessageBody(**params), timeout=self.send_timeout)
+
     #[自定义
     def invalidate_db_handles(self) -> None:
         with self._db_handle_lock:

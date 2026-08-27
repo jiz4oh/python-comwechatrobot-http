@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic.v1 import BaseModel
 
 # login check
@@ -70,6 +72,7 @@ WECHAT_MSG_SEND_EMOTION = 46                # 发送表情
 WECHAT_GET_CDN = 47                         # 下载文件、视频、图片
 WECHAT_DATABASE_INVALIDATE_HANDLES = 48     # 清空原生数据库句柄缓存
 WECHAT_MSG_MARK_AS_READ = 49                # 标记会话已读
+WECHAT_MSG_REVOKE_MESSAGE = 50              # 撤回消息
 
 # Body
 
@@ -219,6 +222,11 @@ class InvalidateDatabaseHandlesBody(Body):
 
 class MarkAsReadBody(Body):
     wxid: str
+
+class RevokeMessageBody(Body):
+    wxid: str
+    msgid: str
+    local_id: Optional[str] = None
 
 #version
 class SetVersionBody(Body):
