@@ -13,6 +13,35 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 Bus = EventBus()
 
+MESSAGE_TYPES = {
+    0: 'eventnotify',
+    1: 'text',
+    3: 'image',
+    9: 'scancashmoney',
+    34: 'voice',
+    35: 'qqmail',
+    37: 'friendrequest',
+    42: 'card',
+    43: 'video',
+    47: 'animatedsticker',
+    48: 'location',
+    49: 'share',
+    50: 'voip',
+    51: 'phone',
+    106: 'sysnotify',
+    1009: 'eventnotify',
+    1010: 'eventnotify',
+    2000: 'transfer',
+    2001: 'redpacket',
+    2002: 'miniprogram',
+    2003: 'groupinvite',
+    2004: 'file',
+    2005: 'revokemsg',
+    2006: 'groupannouncement',
+    10000: 'sysmsg',
+    10002: 'other',
+}
+
 
 def _env_int(name: str, default: int) -> int:
     value = os.environ.get(name)
@@ -59,37 +88,26 @@ class WeChatRobot:
             return deco
         return deco
 
-    def _receive_callback(self, msg: Dict[str, Any]) -> None:
-        type_dict = {
-            0: 'eventnotify',
-            1: 'text',
-            3: 'image',
-            9: 'scancashmoney',
-            34: 'voice',
-            35: 'qqmail',
-            37: 'friendrequest',
-            42: 'card',
-            43: 'video',
-            47: 'animatedsticker',
-            48: 'location',
-            49: 'share',
-            50: 'voip',
-            51: 'phone',
-            106: 'sysnotify',
-            1009: 'eventnotify',
-            1010: 'eventnotify',
-            2000: 'transfer',
-            2001: 'redpacket',
-            2002: 'miniprogram',
-            2003: 'groupinvite',
-            2004: 'file',
-            2005: 'revokemsg',
-            2006: 'groupannouncement',
-            10000: 'sysmsg',
-            10002: 'other'
-        }
+    @staticmethod
+    def normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+        message = dict(msg)
+        raw_type = message.get('type')
+        try:
+            raw_type = int(raw_type)
+        except (TypeError, ValueError):
+            return message
+        message['type'] = MESSAGE_TYPES.get(raw_type, 'unhandled' + str(raw_type))
+        return message
 
-        msg['type'] = type_dict.get(msg['type'], 'unhandled' + str(msg['type']))
+    def GetChatMsgBySvrId(self, **params) -> Dict[str, Any]:
+        response = self.api.GetChatMsgBySvrId(**params)
+        if isinstance(response, dict) and isinstance(response.get('data'), dict):
+            response = dict(response)
+            response['data'] = self.normalize_message(response['data'])
+        return response
+
+    def _receive_callback(self, msg: Dict[str, Any]) -> None:
+        msg = self.normalize_message(msg)
 
         if msg["type"] == "friendrequest":
             Bus.emit("frdver_msg", msg)
