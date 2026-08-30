@@ -48,9 +48,13 @@ class ApiTimeoutTest(unittest.TestCase):
     def test_send_request_uses_send_timeout(self):
         api = Api()
         api.send_timeout = 60.0
-        with patch("wechatrobot.Api.requests.post", return_value=FakeResponse(b'{"result":"OK"}')) as mocked:
-            api.SendText(wxid="wxid_a", msg="hello")
+        with patch(
+            "wechatrobot.Api.requests.post",
+            return_value=FakeResponse(b'{"result":"OK","msg":1,"svrid":"123456"}'),
+        ) as mocked:
+            response = api.SendText(wxid="wxid_a", msg="hello")
         self.assertEqual(mocked.call_args.kwargs["timeout"], 60.0)
+        self.assertEqual(response["svrid"], "123456")
 
     def test_timeouts_read_from_environment(self):
         with patch.dict(
