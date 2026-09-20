@@ -293,4 +293,4 @@ class SendEmotionBody(Body):
 
 #get cdn
 class GetCdnBody(Body):
-    msgid : int
+    msgid : str
